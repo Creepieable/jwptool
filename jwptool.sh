@@ -12,7 +12,7 @@ Generate a wallpaper package from an input image. The image is cropped to
 the target aspect ratio and rendered at multiple resolutions.
 
 Arguments:
-  <input>               Path to the source image (JPEG, PNG, or GIF)
+  <input>               Path to the source image (JPEG, PNG, GIF, or WEBP)
 
 Options:
   -o, --output DIR      Output directory (default: Wallpaper_<timestamp>)
@@ -20,7 +20,9 @@ Options:
   -t, --type TYPE       Package type: KDE, Mint, Bare (default: Bare)
   -f, --format FMT      Output format: KEEP, PNG, JPG, WEBP, WEBPl (lossless) (default: KEEP)
   -w, --widths LIST     Comma-separated output widths in pixels (default: 1920,2560,3840)
-  -e, --extra ARGS      Extra arguments passed to ImageMagick (e.g. -quality 85)
+  -m, --meta KEY=VALUE  Set metadata (repeatable, e.g. -m artist=John -m license=CC0)
+                        Valid keys: title, artist, site, license
+  -e, --extra ARGS      Extra arguments passed to ImageMagick (e.g. -quality 85) (repeatable, e.g. -e option1 -e option2)
   -u, --upscale         Allow upscaling images smaller than the target width
   -s, --skip            Skip all prompts (use defaults)
   -y, --yes             Say yes to all prompts (use default behaviour)
@@ -31,6 +33,7 @@ Examples:
   ${0##*/} wallpaper.png
   ${0##*/} --ratio 16:10 --output MyWall --type KDE photo.jpg
   ${0##*/} -sv image.png
+  ${0##*/} -m artist=John -m license=CC0 photo.jpg
 EOF
 }
 
@@ -53,12 +56,32 @@ trap 'cleanup' EXIT
 # main pack creation func
 ##
 create-wallpaper-package() {
+
+  # metadata default
   wp_id="wp_$(date +%s)"
   wp_title="${input##*/}"
   wp_title="${wp_title%.*}"
-  wp_artist="Unknown"
+  wp_artist="$(basename "$(dirname "$input")")"
+  if [[ $wp_artist == "." ]]; then
+    wp_artist=$(basename "$PWD")
+  fi
   wp_license="Unspecified"
   wp_site=""
+
+  for entry in "${usr_meta[@]}"; do
+    key="${entry%%=*}"
+    value="${entry#*=}"
+    case "$key" in
+    title) wp_title="$value" ;;
+    artist) wp_artist="$value" ;;
+    site) wp_site="$value" ;;
+    license) wp_license="$value" ;;
+    *)
+      echo "Unknown meta key '$key' (valid: title, artist, site, license)" >&2
+      exit 1
+      ;;
+    esac
+  done
 
   log "Creating $type wallpaper package: $output"
 
@@ -247,7 +270,7 @@ format-img() {
         ;;
       esac
     else
-      log "Aspect ratio matches."
+      log "Aspect ratio matches (within margin)."
     fi
   else
     log "Skipping crop confirmation (--yes)."
@@ -281,7 +304,6 @@ format-img() {
 
   rm "$image"
   TEMPFILES=("${TEMPFILES[@]/$image/}")
-  log "Removed original copy."
 }
 
 ##
@@ -301,6 +323,8 @@ ratio="16:9"
 
 magick_extra_args=()
 
+usr_meta=()
+
 type="Bare"
 
 # test getopt
@@ -311,8 +335,8 @@ if [[ ${PIPESTATUS[0]:-$?} -ne 4 ]]; then
 fi
 
 # parse options
-VALID_ARGS=$(getopt -o 'o:r:t:f:w:e:syvuh' \
-  --long 'output:,ratio:,type:,format:,widths:,extra:,skip,yes,verbose,upscale,help' \
+VALID_ARGS=$(getopt -o 'o:r:t:f:w:e:m:syvuh' \
+  --long 'output:,ratio:,type:,format:,widths:,extra:,meta:,skip,yes,verbose,upscale,help' \
   -n "${0##*/}" -- "$@") || exit 1
 
 # getopt failed (bad option) → it already printed an error; exit
@@ -367,6 +391,15 @@ while true; do
   -e | --extra)
     # shellcheck disable=SC2206
     magick_extra_args+=($2)
+    shift 2
+    ;;
+  -m | --meta)
+    if [[ $2 != *=* || -z ${2%%=*} || -z ${2#*=} ]]; then
+      echo "Invalid meta '$2': expected KEY=VALUE format." >&2
+      exit 1
+    else
+      usr_meta+=("$2")
+    fi
     shift 2
     ;;
   -s | --skip)
