@@ -60,6 +60,8 @@ create-wallpaper-package() {
   wp_license="Unspecified"
   wp_site=""
 
+  log "Creating $type wallpaper package: $output"
+
   case "$type" in
   KDE) create_kde ;;
   Mint)
@@ -91,6 +93,8 @@ create_kde() {
   # ask for metadata
   if [[ $skip -ne 1 ]]; then
     ask_meta
+  else
+    log "Skipping metadata prompts."
   fi
 
   # create directory structure
@@ -125,6 +129,8 @@ create_mint() {
   # ask for metadata
   if [[ $skip -ne 1 ]]; then
     ask_meta
+  else
+    log "Skipping metadata prompts."
   fi
 
   # mirror the system layout: backgrounds/<name>/ + a properties xml
@@ -202,6 +208,7 @@ format-img() {
   # extra args passed to all magick invocations
   if [[ $format == "WEBPl" ]]; then
     magick_extra_args+=(-define webp:lossless=true)
+    log "Added lossless webp ImageMagick parameter."
   fi
 
   # Keep/Convert image
@@ -210,8 +217,10 @@ format-img() {
     ext=${ext%l}
     image="$img_output_dir/image.${ext}"
     magick "$input" "${magick_extra_args[@]}" "$image"
+    log "Formatted image to $ext."
   else
     cp "$input" "$image"
+    log "Kept format."
   fi
 
   TEMPFILES+=("$image")
@@ -237,14 +246,16 @@ format-img() {
         exit 1
         ;;
       esac
-
     else
       log "Aspect ratio matches."
     fi
+  else
+    log "Skipping crop confirmation (--yes)."
   fi
 
   # crop image to fix ratio
   magick "$image" -gravity center -crop "$(identify -format "%[fx:min(w,h*${rw}/${rh})]x%[fx:min(h,w*${rh}/${rw})]+0+0" "$image")" +repage "$image"
+  log "Cropped image to ${rw}:${rh}."
 
   img_width=$(identify -format "%w" "$image")
 
