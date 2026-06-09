@@ -21,7 +21,9 @@ Options:
   -t, --type TYPE       Package type: KDE, Mint, Bare (default: Bare)
   -f, --format FMT      Output format: KEEP, PNG, JPG, WEBP, WEBPl (lossless) (default: KEEP)
   -w, --widths LIST     Comma-separated output widths in pixels (default: 1920,2560,3840)
-  -e, --extra ARGS      Extra arguments passed to ImageMagick (e.g. "-quality 85")
+  -m, --meta KEY=VALUE  Set metadata (repeatable, e.g. -m artist=John -m license=CC0)
+                        Valid keys: title, artist, site, license
+  -e, --extra ARGS      Extra arguments passed to ImageMagick (repeatable, e.g. -e -quality -e 85)
   -u, --upscale         Allow upscaling images smaller than the target width
   -s, --skip            Skip all prompts (use defaults)
   -y, --yes             Say yes to all prompts
@@ -41,8 +43,11 @@ jwptool --ratio 16:10 --output MyWall --type KDE photo.jpg
 # Convert to lossless WEBP, skip all prompts
 jwptool -f WEBPl -s image.png
 
+# Set metadata via command line
+jwptool -m artist=John -m license=CC0 photo.jpg
+
 # Pass extra ImageMagick arguments
-jwptool -e "-quality 85 -strip" photo.jpg
+jwptool -e -quality -e 85 photo.jpg
 ```
 
 ## Package Types
@@ -50,6 +55,23 @@ jwptool -e "-quality 85 -strip" photo.jpg
 - **Bare** — a flat directory of resized images, named by resolution (e.g. `1920x1080.jpg`)
 - **KDE** — a KDE Plasma wallpaper package with `contents/images/` layout and `metadata.json`
 - **Mint** — Linux Mint / Cinnamon wallpaper package (work in progress)
+
+## Metadata
+
+For package types that support metadata (KDE, Mint), jwptool will prompt for the following fields unless `--skip` is used:
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `title` | Wallpaper title | Input filename without extension |
+| `artist` | Artist name | Parent directory of the input image |
+| `site` | Artist website | _(empty)_ |
+| `license` | License string | `Unspecified` |
+
+Metadata can also be set non-interactively via `-m`:
+
+```bash
+jwptool -t KDE -m title="Mountain Sunset" -m artist="Jane Doe" -m license=CC-BY-4.0 photo.jpg
+```
 
 ## Installation
 
@@ -60,6 +82,15 @@ chmod +x jwptool.sh
 # Optionally symlink to somewhere on your PATH:
 ln -s "$PWD/jwptool.sh" ~/.local/bin/jwptool
 ```
+
+## Bash Completion
+
+```bash
+# Install bash completion (user)
+ln -s "$PWD/jwptool-completion.bash" ~/.local/share/bash-completion/completions/jwptool
+```
+
+Completion supports all options, with context-aware suggestions for `-t`, `-f`, `-r`, `-w`, and file completion for `<input>` (filtered to supported image types).
 
 ## License
 
