@@ -11,18 +11,26 @@ Usage: ${0##*/} [options] <input>
 Generate a wallpaper package from an input image. The image is cropped to
 the target aspect ratio and rendered at multiple resolutions.
 
+If <input> is a directory, every supported image in it is processed in
+batch mode (one package per image).
+
 Arguments:
-  <input>               Path to the source image (JPEG, PNG, GIF, or WEBP)
+  <input>               Path to a source image (JPEG, PNG, GIF, or WEBP),
+                        or a directory of images for batch processing
 
 Options:
-  -o, --output DIR      Output directory (default: Wallpaper_<timestamp>)
-  -r, --ratio RATIO     Target aspect ratio, e.g. 16:9 or 16:10 (default: 16:9)
+  -o, --output DIR      Output directory (default: Wallpaper_<timestamp>);
+                        in batch mode, the parent dir for all packages
+  -r, --ratio RATIO     Target aspect ratio as N:M, e.g. 16:9 or 16:10 (default: 16:9)
   -t, --type TYPE       Package type: KDE, Mint, Bare (default: Bare)
+                        (Mint is currently a work in progress)
   -f, --format FMT      Output format: KEEP, PNG, JPG, WEBP, WEBPl (lossless) (default: KEEP)
-  -w, --widths LIST     Comma-separated output widths in pixels (default: 1920,2560,3840)
+  -w, --widths LIST     Comma-separated output widths in pixels (default: 1920,2560,3840);
+                        widths larger than the source are skipped unless --upscale is set
   -m, --meta KEY=VALUE  Set metadata (repeatable, e.g. -m artist=John -m license=CC0)
                         Valid keys: title, artist, site, license
-  -e, --extra ARGS      Extra arguments passed to ImageMagick (e.g. -quality 85) (repeatable, e.g. -e option1 -e option2)
+  -e, --extra ARGS      Extra arguments passed to ImageMagick (e.g. -e "-quality 85")
+                        (repeatable, e.g. -e "option 1" -e "option 2")
   -u, --upscale         Allow upscaling images smaller than the target width
   -s, --skip            Skip all prompts (use defaults)
   -y, --yes             Say yes to all prompts (use default behaviour)
@@ -34,6 +42,7 @@ Examples:
   ${0##*/} --ratio 16:10 --output MyWall --type KDE photo.jpg
   ${0##*/} -sv image.png
   ${0##*/} -m artist=John -m license=CC0 photo.jpg
+  ${0##*/} --output Packs ./my_images/      # batch: every image in the folder
 EOF
 }
 
@@ -56,12 +65,14 @@ trap 'cleanup' EXIT
 # main pack creation func
 ##
 create-wallpaper-package() {
+  local input_img=$1
+  local output_package=$2
 
   # metadata default
   wp_id="wp_$(date +%s)"
-  wp_title="${input##*/}"
+  wp_title="${input_img##*/}"
   wp_title="${wp_title%.*}"
-  wp_artist="$(basename "$(dirname "$input")")"
+  wp_artist="$(basename "$(dirname "$input_img")")"
   if [[ $wp_artist == "." ]]; then
     wp_artist=$(basename "$PWD")
   fi
@@ -83,36 +94,78 @@ create-wallpaper-package() {
     esac
   done
 
-  log "Creating $type wallpaper package: $output"
+  log "Creating $type wallpaper package: $output_package"
 
   case "$type" in
-  KDE) create_kde ;;
-  Mint)
-    echo "Mint support is not yet implemented."
-    exit 1
-    ;; #create_mint ;;
-  Bare) create-bare ;;
+  KDE) create-kde "$input_img" "$output_package" ;;
+  Mint) create-mint "$input_img" "$output_package" ;;
+  Bare) create-bare "$input_img" "$output_package" ;;
   *)
     echo "Type $type not supported" >&2
     exit 1
     ;;
   esac
 
-  log "Wallpaper $output of type $type created."
-  echo "$output"
+  log "Wallpaper $output_package of type $type created."
+  echo "$output_package"
+}
+
+process-batch() {
+  if [[ $yes -ne 1 && $skip -ne 1 ]]; then
+    read -rp "Input is a directory, run batch processing? [y/N] " answer
+    case "$answer" in
+    [Yy]*) ;;
+    *)
+      echo "Cancelled."
+      exit 1
+      ;;
+    esac
+  fi
+
+  local input_dir="$1"
+  local output_dir="$2"
+  local found=0
+  local dirname=""
+
+  dirname="$(basename "$input_dir")"
+  if [[ $dirname == "." ]]; then
+    dirname=$(basename "$PWD")
+  fi
+
+  # get dir name for pack naming
+  for f in "$input_dir"/*.{jpg,jpeg,png,gif,webp,JPG,JPEG,PNG,GIF,WEBP}; do
+    [[ -e "$f" ]] || continue
+    ((found += 1))
+    echo "Processing: $f"
+
+    create-wallpaper-package "$f" "$output_dir/${dirname}_Wallpaper_$found"
+  done
+
+  if [[ $found -eq 0 ]]; then
+    echo "No supported files in $input_dir." >&2
+    exit 1
+  fi
+
+  echo "$found wallpaper packages created: $output_dir"
 }
 
 ##
 # specific pack creation funcs
 ##
 create-bare() {
-  mkdir -p "$output"
+  local input_img="$1"
+  local bare_output_dir="$2"
+
+  mkdir -p "$bare_output_dir"
   log "Created output directory."
 
-  format-img "$output"
+  format-img "$input_img" "$bare_output_dir"
 }
 
-create_kde() {
+create-kde() {
+  local input_img="$1"
+  local kde_output_dir="$2"
+
   # ask for metadata
   if [[ $skip -ne 1 ]]; then
     ask_meta
@@ -121,15 +174,15 @@ create_kde() {
   fi
 
   # create directory structure
-  kde_dirs="${output}/contents/images"
+  kde_dirs="${kde_output_dir}/contents/images"
   mkdir -p "${kde_dirs}"
   log "Created directory structure: ${kde_dirs}"
 
   # create images at output path
-  format-img "$kde_dirs"
+  format-img "$input_img" "$kde_dirs"
 
   # create metadata file
-  kde_json_file="$output/metadata.json"
+  kde_json_file="$kde_output_dir/metadata.json"
   cat >"$kde_json_file" <<EOF
 {
   "KPlugin": {
@@ -148,7 +201,11 @@ EOF
   log "Wrote $kde_json_file"
 }
 
-create_mint() {
+# TODO: not implement fully
+create-mint() {
+  local input_img="$1"
+  local mint_output_dir="$2"
+
   # ask for metadata
   if [[ $skip -ne 1 ]]; then
     ask_meta
@@ -156,45 +213,11 @@ create_mint() {
     log "Skipping metadata prompts."
   fi
 
-  # mirror the system layout: backgrounds/<name>/ + a properties xml
-  name=$(basename "$output")
-  bg_dir="${output}/backgrounds/${name}"
-  props_dir="${output}/cinnamon-background-properties"
-  mkdir -p "$bg_dir" "$props_dir"
-  log "Created directory structure: ${bg_dir}"
-
-  # generate the images into the backgrounds dir
-  format-img "$bg_dir"
-
-  # absolute path is required by the XML — resolve output as it exists now
-  abs_bg=$(cd "$bg_dir" && pwd)
-
-  xml_file="${props_dir}/${name}.xml"
-  {
-    echo '<?xml version="1.0" encoding="UTF-8"?>'
-    echo '<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">'
-    echo '<wallpapers>'
-    for f in "$abs_bg"/*."${ext}"; do
-      [ -e "$f" ] || continue        # guard: no files matched
-      res=$(basename "$f" ".${ext}") # e.g. 1920x1080
-      cat <<EOF
-  <wallpaper deleted="false">
-    <name>${wp_title} (${res})</name>
-    <filename>${f}</filename>
-    <options>zoom</options>
-  </wallpaper>
-EOF
-    done
-    echo '</wallpapers>'
-  } >"$xml_file"
-
-  log "Wrote $xml_file"
+  echo "$mint_output_dir with $input_img not created, this function is currently WIP."
 }
 
 ask_meta() {
   # ask metadata
-  wp_id=$(date +%s)
-
   read -r -p "Image Title [$wp_title]: " out
   wp_title="${out:-$wp_title}"
 
@@ -209,10 +232,13 @@ ask_meta() {
 }
 
 format-img() {
-  img_output_dir=$1
+  local input_img=$1
+  local img_output_dir=$2
+
+  local magick_extra_args=("${usr_magick_extra_args[@]+"${usr_magick_extra_args[@]}"}")
 
   # manage image Filetype
-  fmt=$(identify -format "%m" "$input"[0])
+  fmt=$(identify -format "%m" "$input_img"[0])
   ext=""
   case "$fmt" in
   JPEG | JPG) ext="jpg" ;;
@@ -239,10 +265,10 @@ format-img() {
     ext=${format,,}
     ext=${ext%l}
     image="$img_output_dir/image.${ext}"
-    magick "$input" "${magick_extra_args[@]}" "$image"
+    magick "$input_img" "${magick_extra_args[@]}" "$image"
     log "Formatted image to $ext."
   else
-    cp "$input" "$image"
+    cp "$input_img" "$image"
     log "Kept format."
   fi
 
@@ -280,7 +306,9 @@ format-img() {
   magick "$image" -gravity center -crop "$(identify -format "%[fx:min(w,h*${rw}/${rh})]x%[fx:min(h,w*${rh}/${rw})]+0+0" "$image")" +repage "$image"
   log "Cropped image to ${rw}:${rh}."
 
-  img_width=$(identify -format "%w" "$image")
+  img_width=$(identify -format "%w" "$image"[0])
+
+  local made=0
 
   # create resized variants
   for w in "${widths[@]}"; do
@@ -294,13 +322,21 @@ format-img() {
     tmp=$(mktemp "${img_output_dir}/.resize.XXXXXX")
     TEMPFILES+=("$tmp")
     magick "$image" -resize "$w" "${magick_extra_args[@]}" "${ext}:${tmp}"
-    res=$(identify -format "%wx%h" "$tmp")
+    res=$(identify -format "%wx%h" "$tmp"[0])
 
     final="${img_output_dir}/${res}.${ext}"
     mv "$tmp" "${final}"
     TEMPFILES=("${TEMPFILES[@]/$tmp/}")
     log "Created: $final"
+
+    ((made += 1))
   done
+
+  if [[ $made -eq 0 ]]; then
+    echo "Error: '$input_img' is smaller than all target widths; nothing produced (use --upscale)." >&2
+    rm -f "$image"
+    exit 1
+  fi
 
   rm "$image"
   TEMPFILES=("${TEMPFILES[@]/$image/}")
@@ -321,13 +357,13 @@ format="KEEP"
 widths=(1920 2560 3840)
 ratio="16:9"
 
-magick_extra_args=()
+usr_magick_extra_args=()
 
 usr_meta=()
 
 type="Bare"
 
-# test getopt
+# need enhanced getopt
 getopt --test >/dev/null && true
 if [[ ${PIPESTATUS[0]:-$?} -ne 4 ]]; then
   echo "This script needs enhanced getopt (util-linux)." >&2
@@ -354,6 +390,10 @@ while true; do
     shift 2
     ;;
   -r | --ratio)
+    if ! [[ $2 =~ ^[1-9][0-9]*:[1-9][0-9]*$ ]]; then
+      echo "Invalid ratio '$2': expected N:M (e.g. 16:9)." >&2
+      exit 1
+    fi
     ratio="$2"
     shift 2
     ;;
@@ -390,7 +430,7 @@ while true; do
     ;;
   -e | --extra)
     # shellcheck disable=SC2206
-    magick_extra_args+=($2)
+    usr_magick_extra_args+=($2)
     shift 2
     ;;
   -m | --meta)
@@ -436,7 +476,7 @@ done
 # parse input
 input="${1-}"
 
-# return usage if no input
+# usage if no input
 if [[ -z $input ]]; then
   usage
   exit 0
@@ -447,4 +487,18 @@ if [[ ! -e $input ]]; then
   exit 1
 fi
 
-create-wallpaper-package
+# test dependencies
+command -v magick >/dev/null && command -v identify >/dev/null || {
+  echo "ImageMagick (magick/identify) is required." >&2
+  exit 1
+}
+
+# run
+if [[ -d $input ]]; then
+  process-batch "$input" "$output"
+elif [[ -f $input ]]; then
+  create-wallpaper-package "$input" "$output"
+else
+  echo "Unknown input type." >&2
+  exit 1
+fi
