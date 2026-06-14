@@ -1,6 +1,6 @@
 # jwptool
 
-A bash script to generate wallpaper packages from a source image. The image is cropped to a target aspect ratio and rendered at multiple resolutions, with output formatted for KDE Plasma, Linux Mint (WIP), or as a bare directory of images.
+A bash script to generate wallpaper packages from a source image. The image is cropped to a target aspect ratio and rendered at multiple resolutions, with output formatted for KDE Plasma, Linux Mint (WIP), or as a bare directory of images, with added metadata files.
 
 ## Dependencies
 
@@ -13,20 +13,25 @@ A bash script to generate wallpaper packages from a source image. The image is c
 jwptool [options] <input>
 
 Arguments:
-  <input>               Path to the source image (JPEG, PNG, GIF, or WEBP)
+  <input>               Path to a source image (JPEG, PNG, GIF, or WEBP),
+                        or a directory of images for batch processing
 
 Options:
-  -o, --output DIR      Output directory (default: Wallpaper_<timestamp>)
-  -r, --ratio RATIO     Target aspect ratio, e.g. 16:9 or 16:10 (default: 16:9)
+  -o, --output DIR      Output directory (default: Wallpaper_<timestamp>);
+                        in batch mode, the parent dir for all packages
+  -r, --ratio RATIO     Target aspect ratio as N:M, e.g. 16:9 or 16:10 (default: 16:9)
   -t, --type TYPE       Package type: KDE, Mint, Bare (default: Bare)
+                        (Mint is currently a work in progress)
   -f, --format FMT      Output format: KEEP, PNG, JPG, WEBP, WEBPl (lossless) (default: KEEP)
-  -w, --widths LIST     Comma-separated output widths in pixels (default: 1920,2560,3840)
+  -w, --widths LIST     Comma-separated output widths in pixels (default: 1920,2560,3840);
+                        widths larger than the source are skipped unless --upscale is set
   -m, --meta KEY=VALUE  Set metadata (repeatable, e.g. -m artist=John -m license=CC0)
                         Valid keys: title, artist, site, license
-  -e, --extra ARGS      Extra arguments passed to ImageMagick (repeatable, e.g. -e -quality -e 85)
+  -e, --extra ARGS      Extra arguments passed to ImageMagick (e.g. -e "-quality 85")
+                        (repeatable, e.g. -e "option 1" -e "option 2")
   -u, --upscale         Allow upscaling images smaller than the target width
   -s, --skip            Skip all prompts (use defaults)
-  -y, --yes             Say yes to all prompts
+  -y, --yes             Say yes to all prompts (use default behaviour)
   -v, --verbose         Enable verbose output
   -h, --help            Show help and exit
 ```
@@ -47,8 +52,17 @@ jwptool -f WEBPl -s image.png
 jwptool -m artist=John -m license=CC0 photo.jpg
 
 # Pass extra ImageMagick arguments
-jwptool -e -quality -e 85 photo.jpg
+jwptool -e "-quality 85" photo.jpg
+
+# Batch: build one package per image in a folder
+jwptool --output Packs ./my_images/
 ```
+
+## Batch Processing
+
+If `<input>` is a directory, jwptool processes every supported image inside it (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, case-insensitive), creating one package per image. In this mode `--output` is the parent directory that holds all the packages, each named after the input directory with a counter (e.g. `my_images_Wallpaper_1`, `my_images_Wallpaper_2`, …).
+
+Unless `--yes` or `--skip` is given, jwptool asks for confirmation before starting a batch run.
 
 ## Package Types
 
