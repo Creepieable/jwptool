@@ -138,7 +138,12 @@ process-batch() {
     ((found += 1))
     echo "Processing: $f"
 
-    create-wallpaper-package "$f" "$output_dir/${dirname}_Wallpaper_$found"
+    # get image file name for naming package
+    file_name="${f##*/}"
+    file_name="${file_name%.*}"
+    file_name="${file_name// /_}"
+
+    create-wallpaper-package "$f" "$output_dir/${dirname}_Wallpaper_${found}_${file_name}"
   done
 
   if [[ $found -eq 0 ]]; then
